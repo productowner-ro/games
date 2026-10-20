@@ -14,6 +14,7 @@ const sandbox = {
   requestAnimationFrame: () => {}, clearTimeout, console, Math, Set, Number,
 };
 vm.createContext(sandbox);
+vm.runInContext(fs.readFileSync(path.join(__dirname, '../jev.js'), 'utf8'), sandbox); // the page loads jev.js first
 vm.runInContext(fs.readFileSync(path.join(__dirname, 'chess.js'), 'utf8')
   + ';this.api = { parseFEN, legalMoves, makeMove, san, gameStatus, insufficientMaterial, describe, play,'
   + ' load: fen => { reset(); state = parseFEN(fen); }, current: () => state };', sandbox);

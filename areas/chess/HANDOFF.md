@@ -14,15 +14,14 @@ Step 1 (playable chess) and step 2 (two Jev bots) are done. Nothing is committed
 |---|---|
 | `index.html` | Page: board canvas, turn/status panel, bot panels, move list |
 | `chess.js` | Rules engine, UI, and the bot section ("Autoplay with Jev") |
-| `server.js` | Serves the page, proxies `/api/jev` to TypeSafe, appends `/api/log` lines to `games.log` |
 | `rules-test.js` | Headless perft + game-end + SAN + repetition-fact checks. Must print `ALL PASS` |
 | `bot-test.js` | Headless Jev games: `node bot-test.js [half-moves] [games] [start FEN]`. Prints results, plans, "real losses" |
-| `games.log` | Tab-separated game log, legend at the top of each format block |
+| `games.log` | Tab-separated log of earlier games, legend at the top of each format block. The Worker writes no log yet |
 
 ## How to run
 
-- Server: `node areas/chess/server.js` from the `games` folder, then open http://localhost:8788. Click the page, press A (bots on/off), R restarts, U undo, F flip.
-- The server and `bot-test.js` read the TypeSafe API key only from the env var `TYPESAFE_API_KEY`.
+- Page: `docker compose up dev` from the `games` folder, then open http://localhost:8787/chess/. Click the page, press A (bots on/off), R restarts, U undo, F flip.
+- The Worker and `bot-test.js` read the TypeSafe API key only from the env var `TYPESAFE_API_KEY`.
 - Browser automation: key presses often miss the page. Start the bots with `toggleAutoplay()` through the JS tool.
 
 ## Bot design (current)

@@ -19,6 +19,7 @@ const msg = document.getElementById('msg');
 let board, piece, queue, bag, hold, canHold, score, lines, level, dropTimer, lastTime, paused, over;
 let autoplay = false, pieceId = 0, lastStack = 0;
 const botInfo = document.getElementById('bot');
+Jev.mount(document.getElementById('semaphore'));
 
 function newBag() {
   const b = Object.keys(SHAPES);
@@ -355,53 +356,47 @@ async function askJev(cands) {
     };
     criteria[id] = `Place the piece as in \`candidates.${id}\`.`;
   });
-  const res = await fetch('/api/jev', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: 'jev-latest',
-      state: {
-        game: 'Tetris, 10 columns x 20 rows. In boards, row 1 is the top, "#" is a filled cell, "." is empty. '
-          + 'New pieces appear in rows 1-2, columns 4-7. The game is lost when a new piece cannot appear.',
-        height_limit: `No column may be taller than ${EDGE_LIMIT} cells. The top ${ROWS - EDGE_LIMIT} rows must stay empty.`,
-        well: `Column ${WELL + 1} (the rightmost) is the well. In edge play it stays empty until an I piece drops into it and clears 4 lines.`,
-        stack_height_now: boardStats(board).maxHeight,
-        covered_holes_now: boardStats(board).holes,
-        rows_left_before_limit: EDGE_LIMIT - boardStats(board).maxHeight,
-        current_piece: piece.type,
-        next_pieces: queue.slice(0, 3),
-        board_now: boardText(board),
-        candidates,
-      },
-      questions: {
-        danger: {
-          type: 'noul',
-          instructions: 'Look at `board_now`, `current_piece` and `next_pieces`. '
-            + 'If the player keeps stacking higher, will the stack likely pass `height_limit` or lose the game '
-            + 'within the next 3 pieces, because no piece placement clears a line?',
-          criteria: {
-            true: 'The stack is in real danger: holes or an uneven top block line clears, and the next pieces do not fit.',
-            false: 'The player can still build higher safely: open lines can be completed with the coming pieces.',
-          },
-        },
-        edge_pick: {
-          type: 'choice',
-          instructions: 'The player wants to play on the edge: keep the stack as close to `height_limit` as possible '
-            + 'without losing. Pick the placement that builds the stack higher and flat, creates no covered holes, '
-            + 'and keeps `well` empty, unless the piece is an I that drops into `well` and clears 4 lines.',
-          criteria,
-        },
-        safe_pick: {
-          type: 'choice',
-          instructions: 'The stack is in danger. Pick the placement that best lowers the risk right now: '
-            + 'clear lines, open covered holes, and bring the stack down.',
-          criteria,
+  const answers = await Jev.call({
+    model: 'jev-latest',
+    state: {
+      game: 'Tetris, 10 columns x 20 rows. In boards, row 1 is the top, "#" is a filled cell, "." is empty. '
+        + 'New pieces appear in rows 1-2, columns 4-7. The game is lost when a new piece cannot appear.',
+      height_limit: `No column may be taller than ${EDGE_LIMIT} cells. The top ${ROWS - EDGE_LIMIT} rows must stay empty.`,
+      well: `Column ${WELL + 1} (the rightmost) is the well. In edge play it stays empty until an I piece drops into it and clears 4 lines.`,
+      stack_height_now: boardStats(board).maxHeight,
+      covered_holes_now: boardStats(board).holes,
+      rows_left_before_limit: EDGE_LIMIT - boardStats(board).maxHeight,
+      current_piece: piece.type,
+      next_pieces: queue.slice(0, 3),
+      board_now: boardText(board),
+      candidates,
+    },
+    questions: {
+      danger: {
+        type: 'noul',
+        instructions: 'Look at `board_now`, `current_piece` and `next_pieces`. '
+          + 'If the player keeps stacking higher, will the stack likely pass `height_limit` or lose the game '
+          + 'within the next 3 pieces, because no piece placement clears a line?',
+        criteria: {
+          true: 'The stack is in real danger: holes or an uneven top block line clears, and the next pieces do not fit.',
+          false: 'The player can still build higher safely: open lines can be completed with the coming pieces.',
         },
       },
-    }),
+      edge_pick: {
+        type: 'choice',
+        instructions: 'The player wants to play on the edge: keep the stack as close to `height_limit` as possible '
+          + 'without losing. Pick the placement that builds the stack higher and flat, creates no covered holes, '
+          + 'and keeps `well` empty, unless the piece is an I that drops into `well` and clears 4 lines.',
+        criteria,
+      },
+      safe_pick: {
+        type: 'choice',
+        instructions: 'The stack is in danger. Pick the placement that best lowers the risk right now: '
+          + 'clear lines, open covered holes, and bring the stack down.',
+        criteria,
+      },
+    },
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const { answers } = await res.json();
   return {
     danger: answers.danger.noul,
     edge: { index: LABELS.indexOf(answers.edge_pick.choice), confidence: answers.edge_pick.confidence },
@@ -430,10 +425,15 @@ async function planMove() {
       + `(confidence ${pick.confidence.toFixed(2)}). Stack ${target.maxHeight}/${EDGE_LIMIT}. `
       + `${Math.round(performance.now() - t0)} ms.`;
   } catch (e) {
+    if (e.dailyCap) { // past the daily cap no code pick replaces Jev: the bot stops (issue #5)
+      autoplay = false;
+      botInfo.textContent = 'Jev rests until 00:00 UTC. Autoplay off.';
+      return;
+    }
     const now = boardStats(board);
     target = now.maxHeight >= EDGE_LIMIT - DANGER_ZONE || now.holes > HOLE_LIMIT ? safeTop[0] : edgeTop[0];
     info = location.protocol === 'file:'
-      ? 'Jev needs the server: run node areas/tetris/server.js and open http://localhost:8787. Heuristic pick used.'
+      ? 'Jev needs the Worker: run docker compose up dev and open http://localhost:8787/tetris/. Heuristic pick used.'
       : `Jev failed (${e.message}). Heuristic pick used.`;
   }
   if (id !== pieceId || !autoplay || over) return; // the piece changed while we waited

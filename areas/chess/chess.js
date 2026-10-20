@@ -226,10 +226,19 @@ const promoBox = document.getElementById('promo');
 
 // history holds every earlier position with the move played from it: [{ state, move, san }]
 let state, history, selected, targets, pendingPromo, flipped, status;
-let logId, logStarted; // names the current game in the server log; the header goes out with the first move
+let logId, logStarted; // names the current game in the log; the header goes out with the first move
 
-// Sends one line to the server log (games.log; the server writes the legend). Without the server
-// (file:// or tests), the line is dropped.
+// The game log: one line per move, tab-separated:
+//   no move src plan planP drawnP conf adv advBR flags top3
+//   no: the move number as the UI shows it: "38." is White's move 38, "38..." is Black's reply
+//   src: j=Jev, m=code played mate, o=code played the only safe move, f=fallback heuristic, h=human click
+//   plan: dev=develop, mat=win material, atk=attack king, mate=mate weak king, draw=hold draw
+//   planP: probability of the chosen plan. drawnP: probability of the drawn move. conf: Jev's move confidence
+//   adv: mover's material lead before the move. advBR: lead after the opponent's best capture reply
+//   flags: R=repeats a position, D=draws by repetition, S=stalemates, -=none
+//   top3: Jev's top moves as move:p:advBR
+// "# game <id>" starts a game, "# undo" takes one move back, "# end <result> <reason> after move <no>" ends it.
+// Sends one line to /api/log. The Worker has no log yet (it answers 404), so the line is dropped.
 function logLine(text) {
   try {
     fetch('/api/log', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: text }).catch(() => {});
@@ -526,29 +535,23 @@ async function askJev(bot, s, cands) {
       criteria,
     };
   }
-  const res = await fetch('/api/jev', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: 'jev-latest',
-      state: {
-        game: 'Chess. In `board`, rank 8 is the top row. Uppercase letters are white pieces, '
-          + 'lowercase are black: K king, Q queen, R rook, B bishop, N knight, P pawn. "." is an empty square.',
-        you_play: color,
-        your_style: bot.style,
-        fen: toFEN(s),
-        board: boardText(s.board),
-        you_are_in_check: inCheck(s, s.turn),
-        material_now: `you ${mat[s.turn]}, opponent ${mat[other(s.turn)]}`,
-        advantage_now: mat[s.turn] - mat[other(s.turn)],
-        recent_moves: history.slice(-10).map(h => h.san).join(' ') || 'none, the game just started',
-        candidates,
-      },
-      questions,
-    }),
+  const answers = await Jev.call({
+    model: 'jev-latest',
+    state: {
+      game: 'Chess. In `board`, rank 8 is the top row. Uppercase letters are white pieces, '
+        + 'lowercase are black: K king, Q queen, R rook, B bishop, N knight, P pawn. "." is an empty square.',
+      you_play: color,
+      your_style: bot.style,
+      fen: toFEN(s),
+      board: boardText(s.board),
+      you_are_in_check: inCheck(s, s.turn),
+      material_now: `you ${mat[s.turn]}, opponent ${mat[other(s.turn)]}`,
+      advantage_now: mat[s.turn] - mat[other(s.turn)],
+      recent_moves: history.slice(-10).map(h => h.san).join(' ') || 'none, the game just started',
+      candidates,
+    },
+    questions,
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const { answers } = await res.json();
   return { plan: answers.plan, move: answers[`move_${answers.plan.choice}`] };
 }
 
@@ -561,7 +564,7 @@ async function botMove() {
   const safe = cands.filter(c => !c.facts.lets_opponent_mate_next_move);
   const pool = safe.length ? safe : cands; // every move allows mate: all options stay open
   let pick, info, plan = null;
-  const detail = {}; // the log columns, see LEGEND in server.js
+  const detail = {}; // the log columns, see the legend above logLine
   if (mate) {
     pick = mate;
     info = 'Code found checkmate.';
@@ -596,10 +599,16 @@ async function botMove() {
         + `Move confidence ${r.confidence.toFixed(2)} of ${pool.length} moves. Top: ${top}. `
         + `${Math.round(performance.now() - t0)} ms.`;
     } catch (e) {
+      if (e.dailyCap) { // past the daily cap no code pick replaces Jev: the bots stop (issue #5)
+        autoplay = false;
+        box.textContent = '';
+        document.getElementById('bot-status').textContent = 'Jev rests until 00:00 UTC. Autoplay off.';
+        return;
+      }
       pick = heuristicPick(pool);
       detail.src = 'f';
       info = location.protocol === 'file:'
-        ? 'Jev needs the server: run node areas/chess/server.js and open http://localhost:8788. Heuristic pick used.'
+        ? 'Jev needs the Worker: run docker compose up dev and open http://localhost:8787/chess/. Heuristic pick used.'
         : `Jev failed (${e.message}). Heuristic pick used.`;
     }
   }
@@ -625,6 +634,7 @@ function toggleAutoplay() {
   scheduleBot();
 }
 
+Jev.mount(document.getElementById('semaphore'));
 canvas.addEventListener('click', onClick);
 document.addEventListener('keydown', e => {
   switch (e.code) {

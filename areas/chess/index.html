@@ -22,6 +22,12 @@
   #msg { position: absolute; top: 45%; width: 564px; text-align: center; font-size: 28px; font-weight: bold;
          text-shadow: 0 0 6px #000, 0 0 12px #000; pointer-events: none; }
   .board { position: relative; }
+  .semaphore { font-size: 12px; line-height: 1.6; margin-top: 4px; }
+  .semaphore::before { content: "\25CF  "; }
+  .semaphore.green::before { color: #2ecc71; }
+  .semaphore.yellow::before { color: #f1c40f; }
+  .semaphore.red::before { color: #e74c3c; }
+  .semaphore.grey { color: #888; }
 </style>
 </head>
 <body>
@@ -34,6 +40,7 @@
       Click a piece, then a square<br>U undo<br>F flip board<br>R restart<br>A autoplay (two Jev bots)
     </div>
     <h3>Bots</h3><div class="keys" id="bot-status">Autoplay off.</div>
+    <h3>Jev today</h3><div class="semaphore grey" id="semaphore"></div>
     <h3>White bot</h3><div class="keys" id="bot-w"></div>
     <h3>Black bot</h3><div class="keys" id="bot-b"></div>
   </div>
@@ -45,6 +52,7 @@
     <h3>Moves</h3><div id="moves"></div>
   </div>
 </div>
+<script src="../jev.js"></script>
 <script src="chess.js"></script>
 </body>
 </html>

@@ -1,5 +1,4 @@
-# Files in areas/ that the site does not serve: the local servers, the tests and the notes.
-*/server.js
+# Files in areas/ that the site does not serve: the tests, the scripts and the notes.
 *-test.js
 */decision-count.js
 */HANDOFF.md

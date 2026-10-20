@@ -37,6 +37,7 @@ const sandbox = {
   }),
 };
 vm.createContext(sandbox);
+vm.runInContext(fs.readFileSync(path.join(__dirname, '../jev.js'), 'utf8'), sandbox); // the page loads jev.js first
 vm.runInContext(fs.readFileSync(path.join(__dirname, 'tetris.js'), 'utf8') + ';this.state = () => ({ over, lines, score, pieceId, stack: boardStats(board).maxHeight, holes: boardStats(board).holes });', sandbox);
 
 document.keydown({ code: 'KeyA', preventDefault() {} });
