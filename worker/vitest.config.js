@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [
     cloudflareTest({
       wrangler: { configPath: './wrangler.toml' },
-      miniflare: { bindings: { TYPESAFE_API_KEY: 'test-key' } },
+      miniflare: { bindings: { TYPESAFE_API_KEY: 'test-key', DAILY_CAP: '25' } },
     }),
   ],
 });

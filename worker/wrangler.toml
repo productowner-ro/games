@@ -6,3 +6,12 @@ compatibility_date = "2026-10-01"
 [assets]
 directory = "../areas"
 run_worker_first = ["/api/*"]
+
+# The daily count of Jev calls for the whole site (issue #5).
+[[durable_objects.bindings]]
+name = "JEV_COUNT"
+class_name = "JevCount"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["JevCount"]
