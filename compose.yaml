@@ -9,5 +9,15 @@ services:
       - TYPESAFE_API_KEY
       - DAILY_CAP # unset: the Worker uses 5000
 
+  prod:
+    build: { context: ., target: prod }
+    ports: ["8788:8787"]
+    volumes:
+      - prod-count:/data
+    environment:
+      - TYPESAFE_API_KEY
+      - DAILY_CAP # unset: the Worker uses 5000
+
 volumes:
   dev-node-modules:
+  prod-count:
