@@ -9,7 +9,7 @@ Spec for issue #8. PostHog shows what people do on tetris, chess and mitropoly. 
 - **Init:** one shared file, `areas/analytics.js`, loads posthog-js on each game page with:
 
 ```js
-posthog.init('<project token>', {
+posthog.init('phc_khRa5UDQ3qqZXhD6KZe7BVL7kyhNDBfyVrAto25M3Jmm', {
   api_host: 'https://eu.i.posthog.com',
   cookieless_mode: 'always',
   person_profiles: 'never',
