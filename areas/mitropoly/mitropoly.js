@@ -996,7 +996,42 @@ if (typeof window !== 'undefined') (() => {
     busy = false;
     syncDisplay();
     render();
+    runJev();
   }
+
+  // ---------- Jev seats ----------
+  // Plays the decisions of the Jev seats one at a time, until a human must act or the game ends.
+  // At the daily cap or after a failed call, the Jev seats stop: Jev keeps choosing, no code pick
+  // replaces it.
+  let jevRunning = false, jevStop = '', jevCapped = false;
+  async function runJev() {
+    if (jevRunning || jevStop || !G) return;
+    jevRunning = true;
+    try {
+      for (let d = decision(); d && !busy && !jevStop; d = decision()) {
+        const keys = Object.keys(d.options);
+        let key = keys[0];
+        if (keys.length > 1) {
+          thinking = true;
+          render();
+          try {
+            key = (await askJev(d)).key;
+          } catch (e) {
+            jevCapped = Boolean(e.dailyCap);
+            jevStop = e.dailyCap ? 'Jev se odihnește până la 00:00 UTC.' : `Jev nu a răspuns (${e.message}).`;
+          }
+          thinking = false;
+          if (jevStop) { news('Jev', jevStop); render(); break; }
+        }
+        jevRunning = false; // act() calls runJev() again when it ends
+        await act(() => choose(key));
+        return;
+      }
+    } finally {
+      jevRunning = false;
+    }
+  }
+  let thinking = false;
 
   // ---------- panels ----------
   function renderLog() {
@@ -1008,6 +1043,8 @@ if (typeof window !== 'undefined') (() => {
     let st = 'Aruncă zarurile.';
     if (G.winner) st = 'Jocul s-a terminat.';
     else if (busy) st = 'Urmărește tabla.';
+    else if (jevStop && decision()) st = jevStop;
+    else if (decision()) st = thinking ? 'Jev se gândește…' : 'Joacă Jev.';
     else if (G.phase === 'buy') st = `Cumperi ${BOARD[p.pos].name}?`;
     else if (G.phase === 'again') st = 'Ai dat dublă. Mai arunci o dată.';
     else if (G.phase === 'end') st = 'Gata. Dă mai departe. Clic pe o proprietate ca să construiești.';
@@ -1031,6 +1068,8 @@ if (typeof window !== 'undefined') (() => {
     const key = '<span class="kbd">Space</span>';
     let html;
     if (busy) html = '<button class="btn primary" disabled>Se întâmplă…</button>';
+    else if (jevStop && decision()) html = btn('jevretry', 'Încearcă din nou cu Jev', 'primary', jevCapped);
+    else if (decision()) html = `<button class="btn primary" disabled>${thinking ? 'Jev se gândește…' : 'Joacă Jev'}</button>`;
     else if (G.phase === 'over') html = btn('restart', 'Joc nou');
     else if (G.phase === 'buy') html = btn('buy', `Cumpără cu ${sq.price} lei${key}`) + btn('skip', 'Refuză', 'ghost');
     else if (G.phase === 'again') html = btn('roll', `Aruncă din nou${key}`);
@@ -1089,7 +1128,7 @@ if (typeof window !== 'undefined') (() => {
       : '<div class="owner">De vânzare</div>';
     const close = G.phase === 'buy' ? '' : '<button class="btn ghost" data-close>Închide</button>';
     let tools = close ? `<div class="tools">${close}</div>` : '';
-    if (pr && pr.owner === G.cur && canManage() && !busy) {
+    if (pr && pr.owner === G.cur && canManage() && !busy && !decision()) {
       tools = '<div class="tools">' +
         (sq.type === 'street' ? `<button class="btn primary" data-act="build" data-k="${k}"${canBuild(k) ? '' : ' disabled'}>${icon('cross')} Paraclis (${sq.house})</button>` : '') +
         `<button class="btn ghost" data-act="mort" data-k="${k}"${canMortgage(k) ? '' : ' disabled'}>${pr.mortgaged ? `Răscumpără (${Math.ceil(sq.price * 0.55)})` : `Ipotechează (+${sq.price / 2})`}</button>` +
@@ -1129,6 +1168,7 @@ if (typeof window !== 'undefined') (() => {
     const b = e.target.closest('button[data-act]');
     if (b && !b.disabled) {
       if (b.dataset.act === 'restart') { $('#game').hidden = true; $('#setup').hidden = false; return; }
+      if (b.dataset.act === 'jevretry') { jevStop = ''; render(); runJev(); return; }
       const k = +b.dataset.k;
       if (closesDeed.has(b.dataset.act)) selected = null;
       act(() => ACTIONS[b.dataset.act](k));
@@ -1155,10 +1195,12 @@ if (typeof window !== 'undefined') (() => {
   // ---------- setup ----------
   let count = 4;
   function renderNames() {
-    const prev = Array.from(document.querySelectorAll('#names input')).map(i => i.value);
+    const prev = Array.from(document.querySelectorAll('#names input[id^="n"]')).map(i => i.value);
+    const prevJev = Array.from(document.querySelectorAll('#names input[id^="j"]')).map(i => i.checked);
     $('#names').innerHTML = DEFAULT_NAMES.slice(0, count).map((d, i) =>
       `<div class="field"><span class="dot" style="background:${PLAYER_COLORS[i]}"></span>` +
-      `<input id="n${i}" value="${esc(prev[i] ?? d)}" maxlength="28" aria-label="Jucătorul ${i + 1}"></div>`).join('');
+      `<input id="n${i}" value="${esc(prev[i] ?? d)}" maxlength="28" aria-label="Jucătorul ${i + 1}">` +
+      `<label class="switch"><input type="checkbox" id="j${i}"${prevJev[i] ? ' checked' : ''}> Jev</label></div>`).join('');
     document.querySelectorAll('#count button').forEach(b => b.setAttribute('aria-checked', String(+b.dataset.n === count)));
   }
   $('#count').addEventListener('click', e => {
@@ -1168,7 +1210,8 @@ if (typeof window !== 'undefined') (() => {
 
   $('#start').addEventListener('click', async () => {
     const names = Array.from({ length: count }, (_, i) => $('#n' + i).value.trim() || DEFAULT_NAMES[i]);
-    newGame(names);
+    newGame(names, Array.from({ length: count }, (_, i) => $('#j' + i).checked));
+    jevStop = '';
     G.fx = [];
     selected = null;
     lastDeed = '';
@@ -1180,6 +1223,7 @@ if (typeof window !== 'undefined') (() => {
     [$('#d0'), $('#d1')].forEach(e => showFace(e, 1));
     render();
     news('Ultima oră', 'Sinodul anunță: jocul începe. Statul plătește tot.');
+    runJev();
   });
 
   const fastBox = $('#fast');
@@ -1191,4 +1235,5 @@ if (typeof window !== 'undefined') (() => {
 
   buildBoard();
   renderNames();
+  Jev.mount($('#semaphore'));
 })();

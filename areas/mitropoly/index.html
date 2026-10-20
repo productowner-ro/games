@@ -218,6 +218,13 @@
   .journal li { padding: 3px 0; border-bottom: 1px solid #2c2019; }
   .journal li:first-child { color: var(--text); }
   .journal li.turnline { color: var(--gold); font-weight: 700; }
+  .semaphore { font-size: 13px; color: var(--muted); }
+  .semaphore::before { content: "\25CF  "; }
+  .semaphore.green::before { color: #2ecc71; }
+  .semaphore.yellow::before { color: #f1c40f; }
+  .semaphore.red::before { color: #e74c3c; }
+  .semaphore.grey::before { color: #888; }
+  .field .switch { font-size: 13px; color: var(--muted); flex: none; }
   .panel footer { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
   .switch { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
   .switch input { accent-color: var(--gold); }
@@ -273,6 +280,7 @@
   </div>
   <aside class="panel">
     <div id="players" class="players"></div>
+    <div class="semaphore grey" id="semaphore"></div>
     <div class="journal"><h2>Jurnal</h2><ol id="log"></ol></div>
     <footer>
       <label class="switch"><input type="checkbox" id="fast"> Animații rapide</label>
@@ -281,6 +289,7 @@
   </aside>
 </main>
 
+<script src="../jev.js"></script>
 <script src="mitropoly.js"></script>
 </body>
 </html>
