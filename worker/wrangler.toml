@@ -3,6 +3,9 @@ name = "games"
 main = "src/index.js"
 compatibility_date = "2026-10-01"
 
+# Cloudflare creates the DNS record and the certificate of a Custom Domain (issue #7).
+routes = [ { pattern = "games.productowner.ro", custom_domain = true } ]
+
 [assets]
 directory = "../areas"
 run_worker_first = ["/api/*"]
