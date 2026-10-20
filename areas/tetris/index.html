@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Tetris</title>
+<style>
+  body { margin: 0; background: #111; color: #eee; font-family: system-ui, sans-serif;
+         display: flex; justify-content: center; align-items: flex-start; padding-top: 30px; }
+  .wrap { display: flex; gap: 20px; }
+  canvas { background: #000; border: 2px solid #444; }
+  .side { width: 160px; }
+  .side h3 { margin: 12px 0 6px; font-size: 14px; color: #aaa; text-transform: uppercase; }
+  .stat { font-size: 22px; font-weight: bold; }
+  .keys { font-size: 12px; color: #888; line-height: 1.6; margin-top: 16px; }
+  #msg { position: absolute; top: 45%; width: 300px; text-align: center; font-size: 28px; font-weight: bold; }
+  .board { position: relative; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="side">
+    <h3>Hold</h3><canvas id="hold" width="120" height="80"></canvas>
+    <div class="keys">
+      ← → move<br>↓ soft drop<br>↑ / X rotate right<br>Z rotate left<br>Space hard drop<br>C / Shift hold<br>P pause<br>R restart<br>A autoplay (Jev)
+    </div>
+    <h3>Bot</h3><div class="keys" id="bot">Autoplay off.</div>
+  </div>
+  <div class="board">
+    <canvas id="game" width="300" height="600"></canvas>
+    <div id="msg"></div>
+  </div>
+  <div class="side">
+    <h3>Next</h3><canvas id="next" width="120" height="260"></canvas>
+    <h3>Score</h3><div class="stat" id="score">0</div>
+    <h3>Lines</h3><div class="stat" id="lines">0</div>
+    <h3>Level</h3><div class="stat" id="level">1</div>
+  </div>
+</div>
+<script src="tetris.js"></script>
+</body>
+</html>

@@ -1,0 +1,4 @@
+.DS_Store
+.claude/
+!areas/chess/games.log
+private/
