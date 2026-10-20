@@ -238,11 +238,9 @@ let logId, logStarted; // names the current game in the log; the header goes out
 //   flags: R=repeats a position, D=draws by repetition, S=stalemates, -=none
 //   top3: Jev's top moves as move:p:advBR
 // "# game <id>" starts a game, "# undo" takes one move back, "# end <result> <reason> after move <no>" ends it.
-// Sends one line to /api/log. The Worker has no log yet (it answers 404), so the line is dropped.
-function logLine(text) {
-  try {
-    fetch('/api/log', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: text }).catch(() => {});
-  } catch (e) { /* no fetch here */ }
+// GameLog (areas/log.js) keeps the lines in page memory and pushes them to /api/log (issue #12).
+function logLine(line) {
+  GameLog.write(line);
 }
 
 function reset() {
@@ -252,7 +250,7 @@ function reset() {
   status = { over: false };
   msg.textContent = '';
   gameId++;
-  logId = new Date().toISOString();
+  logId = GameLog.start('chess');
   logStarted = false;
   for (const c of 'wb') document.getElementById(`bot-${c}`).textContent = '';
   updateSide();
@@ -265,8 +263,7 @@ function play(m, bot = null) {
   if (!logStarted) { logLine(`# game ${logId}`); logStarted = true; }
   const b = bot || { src: 'h' };
   const no = state.turn === 'w' ? `${state.full}.` : `${state.full}...`; // the move number the UI shows
-  logLine([no, move, b.src, b.plan, b.planP, b.drawnP, b.conf, b.adv, b.advBR,
-    b.flags, b.top].map(v => (v === undefined || v === null ? '-' : v)).join('\t'));
+  logLine([no, move, b.src, b.plan, b.planP, b.drawnP, b.conf, b.adv, b.advBR, b.flags, b.top]);
   history.push({ state, move: m, san: move });
   state = makeMove(state, m);
   selected = null; targets = []; pendingPromo = null;

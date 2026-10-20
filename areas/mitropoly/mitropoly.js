@@ -363,6 +363,7 @@ function draw(kind) {
   const deck = G[kind];
   const c = deck.shift();
   deck.push(c);
+  G.drawn.push(`${kind}:${(kind === 'chance' ? CHANCE : CHEST).indexOf(c)}`); // for the game log
   const tag = kind === 'chance' ? 'Minune' : 'Cutia milei';
   log(`${tag}: ${c.t}`);
   fx({ t: 'news', tag, color: kind === 'chance' ? '#8a6a12' : '#1f3560', m: c.t, hold: true });
@@ -380,6 +381,7 @@ function roll() {
   const d1 = die(), d2 = die();
   const dbl = d1 === d2;
   G.dice = [d1, d2];
+  G.drawn = []; // the cards this roll draws, as kind:index in CHANCE or CHEST
   fx({ t: 'dice', d: [d1, d2] });
   log(`${p.name} dă ${d1} + ${d2}${dbl ? ' (dublă)' : ''}.`);
 
@@ -634,6 +636,9 @@ const STYLES = [
   'You are an opportunist councillor. You buy cheap squares, mortgage freely to fund builds on a full group, and leave jail fast.',
 ];
 
+// The short name of each style, for the game log.
+const STYLE_NAMES = ['greedy', 'cautious', 'patient', 'opportunist'];
+
 // The draw favors the top options of Jev; at 1 it would follow the probabilities exactly (as in chess).
 const TEMPERATURE = 0.5;
 
@@ -711,7 +716,7 @@ async function jevStep() {
 function newGame(names, jev = []) {
   G = {
     players: names.map((name, i) => ({ name, color: PLAYER_COLORS[i], money: 1500, pos: 0, jail: false, jailTurns: 0, getOut: 0, out: false, jev: Boolean(jev[i]) })),
-    props: {}, debts: [], cur: 0, turn: 1, phase: 'roll', next: 'end', doubles: 0, dice: [1, 1], winner: null,
+    props: {}, debts: [], cur: 0, turn: 1, phase: 'roll', next: 'end', doubles: 0, dice: [1, 1], drawn: [], winner: null,
     chance: shuffle(CHANCE), chest: shuffle(CHEST), log: [], fx: [],
   };
   log('Fiecare popă primește 1500 de lei din bugetul de stat.');
@@ -983,11 +988,12 @@ if (typeof window !== 'undefined') (() => {
     };
   }
 
-  async function act(fn) {
+  async function act(fn, entry) {
     if (busy || !G) return;
     busy = true;
     G.fx = [];
     fn();
+    if (entry) logChoice(entry);
     const list = G.fx;
     G.fx = [];
     render();
@@ -1010,12 +1016,12 @@ if (typeof window !== 'undefined') (() => {
     try {
       for (let d = decision(); d && !busy && !jevStop; d = decision()) {
         const keys = Object.keys(d.options);
-        let key = keys[0];
+        let key = keys[0], answer = null;
         if (keys.length > 1) {
           thinking = true;
           render();
           try {
-            key = (await askJev(d)).key;
+            ({ key, answer } = await askJev(d));
           } catch (e) {
             jevCapped = Boolean(e.dailyCap);
             jevStop = e.dailyCap ? 'Jev se odihnește până la 00:00 UTC.' : `Jev nu a răspuns (${e.message}).`;
@@ -1024,7 +1030,12 @@ if (typeof window !== 'undefined') (() => {
           if (jevStop) { news('Jev', jevStop); render(); break; }
         }
         jevRunning = false; // act() calls runJev() again when it ends
-        await act(() => choose(key));
+        await act(() => choose(key), {
+          turn: G.turn, seat: d.seat, src: answer ? 'j' : 'c', kind: d.kind, choice: key,
+          p: answer && p2(answer.probabilities[key] || 0),
+          top3: answer && Object.entries(answer.probabilities).sort((a, b) => b[1] - a[1]).slice(0, 3)
+            .map(([k, pr]) => `${k}:${p2(pr)}`).join(' '),
+        });
         return;
       }
     } finally {
@@ -1032,6 +1043,49 @@ if (typeof window !== 'undefined') (() => {
     }
   }
   let thinking = false;
+
+  // ---------- game log ----------
+  // One line per decision, tab-separated (issue #12):
+  //   turn seat src kind choice draw p top3
+  //   seat: the seat that acts, 0 to 3. src: h=a person, j=Jev, c=code took the only option
+  //   kind: roll, buy, jail, manage or debt. choice: the key of the option, as in decision()
+  //   draw: on a roll, the dice and the cards drawn, for example 3,4 or 3,4;chance:12 (the index in CHANCE)
+  //   p: the probability of Jev for the choice. top3: the top options of Jev as key:p
+  // "# game <id>" and one name:h|j:style per seat start a game. "# end <seat> bankruptcy" ends it.
+  // GameLog (areas/log.js) keeps the lines in page memory and pushes them to /api/log.
+  const p2 = x => x.toFixed(2).replace(/^0\./, '.'); // 0.46 -> .46
+  let logEnded = false;
+
+  function logStart() {
+    const id = GameLog.start('mitropoly');
+    logEnded = false;
+    GameLog.write([`# game ${id}`, ...G.players.map((q, i) => `${q.name}:${q.jev ? 'j' : 'h'}:${q.jev ? STYLE_NAMES[i] : '-'}`)]);
+  }
+
+  // The log entry of a button that a person clicks, before the action plays.
+  function humanChoice(a, k) {
+    const p = cur();
+    const [kind, choice] = {
+      roll: p.jail ? ['jail', 'roll_for_double'] : ['roll', 'roll'],
+      buy: ['buy', 'buy'], skip: ['buy', 'refuse'],
+      bribe: ['jail', 'pay_bribe'], card: ['jail', 'use_card'],
+      end: ['manage', 'end_turn'],
+      build: ['manage', `build_${k}`],
+      mort: ['manage', `${G.props[k] && G.props[k].mortgaged ? 'buyback' : 'mortgage'}_${k}`],
+    }[a];
+    return { turn: G.turn, seat: G.cur, src: 'h', kind, choice };
+  }
+
+  // Writes the line of a choice that just played. A roll adds its dice and the cards it drew.
+  function logChoice(e) {
+    const rolled = e.choice === 'roll' || e.choice === 'roll_for_double';
+    const draw = rolled ? [G.dice.join(','), ...G.drawn].join(';') : null;
+    GameLog.write([e.turn, e.seat, e.src, e.kind, e.choice, draw, e.p, e.top3]);
+    if (G.winner && !logEnded) {
+      GameLog.write(`# end ${idxOf(G.winner)} bankruptcy`);
+      logEnded = true;
+    }
+  }
 
   // ---------- panels ----------
   function renderLog() {
@@ -1171,7 +1225,7 @@ if (typeof window !== 'undefined') (() => {
       if (b.dataset.act === 'jevretry') { jevStop = ''; render(); runJev(); return; }
       const k = +b.dataset.k;
       if (closesDeed.has(b.dataset.act)) selected = null;
-      act(() => ACTIONS[b.dataset.act](k));
+      act(() => ACTIONS[b.dataset.act](k), humanChoice(b.dataset.act, k));
       return;
     }
     const s = e.target.closest('[data-sel], .cell');
@@ -1211,6 +1265,7 @@ if (typeof window !== 'undefined') (() => {
   $('#start').addEventListener('click', async () => {
     const names = Array.from({ length: count }, (_, i) => $('#n' + i).value.trim() || DEFAULT_NAMES[i]);
     newGame(names, Array.from({ length: count }, (_, i) => $('#j' + i).checked));
+    logStart();
     jevStop = '';
     G.fx = [];
     selected = null;

@@ -11,10 +11,11 @@ const fakeEl = () => ({ textContent: '', innerHTML: '', style: {}, getContext: (
 const els = {};
 const sandbox = {
   document: { getElementById: id => (els[id] ||= fakeEl()), addEventListener() {}, createElement: fakeEl },
-  requestAnimationFrame: () => {}, clearTimeout, console, Math, Set, Number,
+  requestAnimationFrame: () => {}, clearTimeout, console, Math, Set, Number, crypto,
 };
 vm.createContext(sandbox);
 vm.runInContext(fs.readFileSync(path.join(__dirname, '../jev.js'), 'utf8'), sandbox); // the page loads jev.js first
+vm.runInContext(fs.readFileSync(path.join(__dirname, '../log.js'), 'utf8'), sandbox); // and log.js
 vm.runInContext(fs.readFileSync(path.join(__dirname, 'chess.js'), 'utf8')
   + ';this.api = { parseFEN, legalMoves, makeMove, san, gameStatus, insufficientMaterial, describe, play,'
   + ' load: fen => { reset(); state = parseFEN(fen); }, current: () => state };', sandbox);

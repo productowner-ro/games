@@ -29,15 +29,17 @@ const document = {
 };
 const log = [];
 const sandbox = {
-  document, console, setTimeout, Math, JSON, Promise, Set, Error, Array, Number,
+  document, console, setTimeout, Math, JSON, Promise, Set, Error, Array, Number, Object, crypto,
   performance: { now: () => performance.now() },
   requestAnimationFrame: () => {},
-  fetch: (url, opts) => fetch('https://api.typesafe.ai/v1/systemone', {
-    ...opts, headers: { ...opts.headers, Authorization: `Bearer ${KEY}` },
-  }),
+  fetch: (url, opts) => (url === '/api/log' ? Promise.resolve({ ok: true, status: 204 }) // the test keeps no game log
+    : fetch('https://api.typesafe.ai/v1/systemone', {
+      ...opts, headers: { ...opts.headers, Authorization: `Bearer ${KEY}` },
+    })),
 };
 vm.createContext(sandbox);
 vm.runInContext(fs.readFileSync(path.join(__dirname, '../jev.js'), 'utf8'), sandbox); // the page loads jev.js first
+vm.runInContext(fs.readFileSync(path.join(__dirname, '../log.js'), 'utf8'), sandbox); // and log.js
 vm.runInContext(fs.readFileSync(path.join(__dirname, 'tetris.js'), 'utf8') + ';this.state = () => ({ over, lines, score, pieceId, stack: boardStats(board).maxHeight, holes: boardStats(board).holes });', sandbox);
 
 document.keydown({ code: 'KeyA', preventDefault() {} });

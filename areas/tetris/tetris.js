@@ -18,6 +18,7 @@ const msg = document.getElementById('msg');
 
 let board, piece, queue, bag, hold, canHold, score, lines, level, dropTimer, lastTime, paused, over;
 let autoplay = false, pieceId = 0, lastStack = 0;
+let logId, logStarted, logN, jevPick = null; // the game log: see the legend above logLine
 const botInfo = document.getElementById('bot');
 Jev.mount(document.getElementById('semaphore'));
 
@@ -37,7 +38,8 @@ function nextType() {
 
 function makePiece(type) {
   const m = SHAPES[type].map(r => r.slice());
-  return { type, m, x: Math.floor((COLS - m[0].length) / 2), y: type === 'I' ? -1 : 0 };
+  // rot: the quarter turns to the right from the spawn shape, for the game log
+  return { type, m, rot: 0, x: Math.floor((COLS - m[0].length) / 2), y: type === 'I' ? -1 : 0 };
 }
 
 function collides(m, x, y) {
@@ -68,6 +70,7 @@ function tryRotate(dir) {
   for (const [dx, dy] of [[0,0],[-1,0],[1,0],[-2,0],[2,0],[0,-1]]) {
     if (!collides(m, piece.x + dx, piece.y + dy)) {
       piece.m = m; piece.x += dx; piece.y += dy;
+      piece.rot = (piece.rot + (dir > 0 ? 1 : 3)) % 4;
       return;
     }
   }
@@ -81,9 +84,36 @@ function spawn() {
   if (collides(piece.m, piece.x, piece.y)) {
     over = true;
     msg.textContent = 'GAME OVER - press R';
+    logEnd('top-out');
     return;
   }
   if (autoplay) planMove();
+}
+
+// The game log: one line per piece that lands or goes on hold, tab-separated (issue #12):
+//   n src act piece rot col row cleared danger mode conf top3
+//   n: the number of the line in the game. src: h=a person, j=Jev
+//   act: lock=the piece lands, hold=the piece goes on hold. piece: I, O, T, S, Z, J or L
+//   rot col row: the quarter turns to the right from the spawn shape, and the cell of the top left
+//     corner of the shape where the piece lands. Empty on a hold line
+//   cleared: the lines the piece clears
+//   danger: the probability of Jev that the stack is in danger. mode: edge or safe, the question whose pick
+//     the bot played. conf: the confidence of Jev in that pick. top3: the top candidates of that question as id:p
+// "# game <id>" starts a game. "# end <lines> <reason>" ends it: the lines cleared, and top-out or restart.
+// GameLog (areas/log.js) keeps the lines in page memory and pushes them to /api/log.
+function logLine(line) {
+  if (!logStarted) { GameLog.write(`# game ${logId}`); logStarted = true; }
+  GameLog.write(line);
+}
+
+function logPiece(act, cleared) {
+  const j = jevPick && jevPick.id === pieceId ? jevPick : null; // a piece that Jev placed
+  const at = act === 'lock' ? [piece.rot, piece.x, piece.y, cleared] : [null, null, null, null];
+  logLine([++logN, j ? 'j' : 'h', act, piece.type, ...at, j && j.danger, j && j.mode, j && j.conf, j && j.top3]);
+}
+
+function logEnd(reason) {
+  if (logStarted) logLine(`# end ${lines} ${reason}`);
 }
 
 function lock() {
@@ -93,6 +123,8 @@ function lock() {
   if (piece.m.some((row, r) => row.some(v => v) && piece.y + r < 0)) {
     over = true;
     msg.textContent = 'GAME OVER - press R';
+    logPiece('lock', 0);
+    logEnd('top-out');
     return;
   }
   let cleared = 0;
@@ -104,6 +136,7 @@ function lock() {
       r++;
     }
   }
+  logPiece('lock', cleared);
   lines += cleared;
   score += LINE_POINTS[cleared] * level;
   level = Math.floor(lines / 10) + 1;
@@ -136,6 +169,7 @@ function hardDrop() {
 
 function doHold() {
   if (!canHold) return;
+  logPiece('hold');
   const t = piece.type;
   if (hold) piece = makePiece(hold);
   else { piece = makePiece(queue.shift()); queue.push(nextType()); }
@@ -234,6 +268,10 @@ function loop(t = 0) {
 }
 
 function reset() {
+  if (board && !over) logEnd('restart');
+  logId = GameLog.start('tetris');
+  logStarted = false;
+  logN = 0;
   board = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
   bag = [];
   queue = [nextType(), nextType(), nextType(), nextType()];
@@ -258,6 +296,7 @@ const HOLE_LIMIT = 3;         // more covered holes than this: safe mode, whatev
 const WELL = COLS - 1;        // edge mode keeps this column open for I pieces (4-line clears)
 const PER_MODE = 4;            // candidates per mode sent to Jev
 const LABELS = 'ABCDEFGH';
+const p2 = x => x.toFixed(2).replace(/^0\./, '.'); // 0.46 -> .46, for the log
 
 function boardStats(b) {
   const heights = [];
@@ -399,8 +438,8 @@ async function askJev(cands) {
   });
   return {
     danger: answers.danger.noul,
-    edge: { index: LABELS.indexOf(answers.edge_pick.choice), confidence: answers.edge_pick.confidence },
-    safe: { index: LABELS.indexOf(answers.safe_pick.choice), confidence: answers.safe_pick.confidence },
+    edge: { index: LABELS.indexOf(answers.edge_pick.choice), ...answers.edge_pick },
+    safe: { index: LABELS.indexOf(answers.safe_pick.choice), ...answers.safe_pick },
   };
 }
 
@@ -408,7 +447,7 @@ async function planMove() {
   const id = pieceId;
   const { union, edgeTop, safeTop, overLimit } = candidatePlacements();
   if (union.length === 0) return hardDrop();
-  let target, info;
+  let target, info, log;
   try {
     botInfo.textContent = 'Jev thinks…';
     const t0 = performance.now();
@@ -420,6 +459,8 @@ async function planMove() {
     const pick = r[mode];
     target = union[pick.index];
     if (!target) throw new Error(`Jev named an unknown placement: ${pick.index}`);
+    log = { id, danger: p2(r.danger), mode, conf: p2(pick.confidence),
+      top3: Object.entries(pick.probabilities || {}).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, pr]) => `${k}:${p2(pr)}`).join(' ') };
     const why = overLimit ? ' (no move fits under the limit)' : tooManyHoles ? ` (${now.holes} holes)` : '';
     info = `Mode ${mode.toUpperCase()}${why}. `
       + `Danger ${r.danger.toFixed(2)}. Pick ${LABELS[union.indexOf(target)]} of ${union.length} `
@@ -438,6 +479,7 @@ async function planMove() {
   }
   if (id !== pieceId || !autoplay || over) return; // the piece changed while we waited
   botInfo.textContent = info;
+  jevPick = log;
   lastStack = target.maxHeight;
   await executePlacement(target, id);
 }
