@@ -7,3 +7,5 @@ Browser games built with Claude, where Jev makes the decisions of the players. T
 - `docs/agents/`: how the agent skills use the issue tracker and the glossary.
 - `resources/`: research notes that issues cite.
 - `projects/`, `inbox/`, `archives/`: PARA folders, empty for now.
+
+Licence: copyright (C) 2026 Gabi Udrescu, under the GNU Affero General Public License v3.0 (`LICENSE`). A site or app that runs a changed copy of the games must publish its source.
