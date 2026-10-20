@@ -53,6 +53,20 @@ it('a failed call to TypeSafe returns 502 and still counts', async () => {
   expect(statuses[25]).toBe(429);
 });
 
+// The one test that looks inside: issue #5 counts the Durable Object requests per day.
+it('past the cap, the Worker stops asking the Durable Object until 00:00 UTC', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-11-06T09:00:00Z'));
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async () => Response.json({ answers: {} }));
+  const asks = vi.spyOn(env.JEV_COUNT, 'get');
+  for (let i = 0; i < 26; i++) await jev(); // 25 calls in 2 blocks, then the first 429
+  const asksAtCap = asks.mock.calls.length;
+
+  for (let i = 0; i < 10; i++) expect((await jev()).status).toBe(429);
+
+  expect(asks.mock.calls.length).toBe(asksAtCap);
+});
+
 it('a new UTC day starts a new count', async () => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date('2026-11-04T23:59:00Z'));

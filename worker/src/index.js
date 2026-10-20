@@ -31,6 +31,8 @@ export class JevCount extends DurableObject {
 let block = { date: '', calls: 0, left: 0 };
 
 async function spendOne(env, date) {
+  // The last reservation took the last calls of the day: the Durable Object has none to give until 00:00 UTC.
+  if (block.date === date && block.calls === 0 && block.left === 0) return false;
   if (block.date !== date || block.calls === 0) {
     const stub = env.JEV_COUNT.get(env.JEV_COUNT.idFromName('site'));
     const { granted, left } = await stub.reserve(date, BLOCK, Number(env.DAILY_CAP || 5000));
