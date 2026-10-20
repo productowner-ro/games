@@ -9,7 +9,8 @@ RUN npm ci --legacy-peer-deps --no-audit --no-fund --loglevel=error
 ENV CLOUDFLARE_INCLUDE_PROCESS_ENV=true \
     WRANGLER_SEND_METRICS=false
 EXPOSE 8787
-CMD ["npx", "wrangler", "dev", "--ip", "0.0.0.0", "--port", "8787"]
+# wrangler dev does not create the tables of migrations/ in the local D1: apply them first.
+CMD npx wrangler d1 migrations apply games-log --local && exec npx wrangler dev --ip 0.0.0.0 --port 8787
 
 # The files of areas/ that the site serves: the patterns of areas/.assetsignore go, as on Cloudflare.
 FROM debian:bookworm-slim AS files
@@ -23,8 +24,9 @@ FROM debian:bookworm-slim AS prod
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY --from=dev /repo/worker/node_modules/@cloudflare/workerd-linux-*/bin/workerd /usr/local/bin/workerd
 COPY --from=files /app/areas /app/areas
-COPY worker/prod/workerd.capnp worker/prod/files.js worker/src/index.js /app/
-# The count of Jev calls: mount a volume here, so it survives a restart.
+COPY worker/prod/workerd.capnp worker/prod/files.js worker/prod/d1.js worker/src/index.js /app/
+COPY worker/migrations /app/migrations
+# The count of Jev calls and the game log: mount a volume here, so they survive a restart.
 RUN mkdir /data
 EXPOSE 8787
 # --experimental: workerd marks the storage of a Durable Object on local disk as experimental.

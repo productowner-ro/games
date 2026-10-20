@@ -18,3 +18,9 @@ class_name = "JevCount"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["JevCount"]
+
+# The game log: one row per log line (issue #12). The table is in migrations/.
+[[d1_databases]]
+binding = "LOG"
+database_name = "games-log"
+migrations_dir = "migrations"

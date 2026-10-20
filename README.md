@@ -3,7 +3,7 @@
 Browser games built with Claude, where Jev makes the decisions of the players. The goal: show on games.productowner.ro what Claude can build, and how Jev works as a gameplay engine. The terms: `GLOSSARY.md`.
 
 - `areas/<game>/`: one folder per game: tetris, chess, mitropoly. A game has no end state, so it is an area.
-- `worker/`: the Worker that serves the games and passes the calls to Jev, under a daily cap. `worker/prod/` runs the same Worker on workerd, the open-source Workers runtime.
+- `worker/`: the Worker that serves the games, passes the calls to Jev under a daily cap, and writes the game log to D1. `worker/prod/` runs the same Worker on workerd, the open-source Workers runtime, with a small stand-in for D1.
 - Run the games: `docker compose up dev` reloads on each save; `docker compose up prod` runs the Worker on workerd. Both read the TypeSafe key from the env var `TYPESAFE_API_KEY`.
 - CI (`.github/workflows/deploy.yml`) tests the Worker on each push and deploys it on each push to `main`, or on a manual run.
 - The plan that puts the games online: the map issue [Map: put the Jev games on games.productowner.ro](https://github.com/productowner-ro/games/issues/1) and its sub-issues.
