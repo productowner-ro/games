@@ -231,7 +231,7 @@ let logId, logStarted; // names the current game in the log; the header goes out
 // The game log: one line per move, tab-separated:
 //   no move src plan planP drawnP conf adv advBR flags top3
 //   no: the move number as the UI shows it: "38." is White's move 38, "38..." is Black's reply
-//   src: j=Jev, m=code played mate, o=code played the only safe move, f=fallback heuristic, h=human click
+//   src: j=Jev, m=code played mate, o=code played the only safe move, h=human click
 //   plan: dev=develop, mat=win material, atk=attack king, mate=mate weak king, draw=hold draw
 //   planP: probability of the chosen plan. drawnP: probability of the drawn move. conf: Jev's move confidence
 //   adv: mover's material lead before the move. advBR: lead after the opponent's best capture reply
@@ -387,7 +387,7 @@ function loop() {
 // Code lists every legal move and computes one-move facts for it (captures, checks, safety).
 // Code enforces two hard rules: play a checkmate when one exists, never allow mate in one.
 // In one request, Jev picks a plan for the position and a move for every plan.
-// Code plays the move of the plan Jev picked. A simple heuristic pick is the fallback.
+// Code plays the move of the plan Jev picked. When a Jev call fails, the bots stop: no code pick replaces Jev.
 
 const BOTS = {
   w: { name: 'Attacker', style: 'You play sharp, attacking chess. You prefer checks, captures and moves '
@@ -501,13 +501,6 @@ function describe(s, m) {
   };
 }
 
-function heuristicPick(cands) {
-  const score = ({ facts }) => (facts.is_checkmate ? 1000 : 0) + (facts.causes_stalemate ? -500 : 0)
-    + facts.advantage_after_best_reply * 10 - facts.enemy_king_squares
-    + (facts.gives_check ? 2 : 0) + (facts.castles ? 3 : 0) + Math.random();
-  return cands.reduce((best, c) => (score(c) > score(best) ? c : best));
-}
-
 async function askJev(bot, s, cands) {
   const candidates = {}, criteria = {};
   const color = s.turn === 'w' ? 'White' : 'Black';
@@ -580,7 +573,8 @@ async function botMove() {
       const { plan: p, move: r } = await askJev(bot, s, pool);
       plan = p.choice;
       const key = sampleKey(r.probabilities);
-      pick = pool.find(c => c.key === key) || heuristicPick(pool);
+      pick = pool.find(c => c.key === key);
+      if (!pick) throw new Error(`Jev named an unknown move: ${key}`);
       Object.assign(detail, {
         src: 'j',
         plan: PLAN_CODES[plan],
@@ -599,17 +593,16 @@ async function botMove() {
         + `Move confidence ${r.confidence.toFixed(2)} of ${pool.length} moves. Top: ${top}. `
         + `${Math.round(performance.now() - t0)} ms.`;
     } catch (e) {
-      if (e.dailyCap) { // past the daily cap no code pick replaces Jev: the bots stop (issue #5)
-        autoplay = false;
-        box.textContent = '';
-        document.getElementById('bot-status').textContent = 'Jev rests until 00:00 UTC. Autoplay off.';
-        return;
-      }
-      pick = heuristicPick(pool);
-      detail.src = 'f';
-      info = location.protocol === 'file:'
-        ? 'Jev needs the Worker: run docker compose up dev and open http://localhost:8787/chess/. Heuristic pick used.'
-        : `Jev failed (${e.message}). Heuristic pick used.`;
+      // No code pick replaces Jev: past the daily cap or after a failed call, the bots stop.
+      // Autoplay on is the retry.
+      autoplay = false;
+      box.textContent = '';
+      document.getElementById('bot-status').textContent = e.dailyCap
+        ? 'Jev rests until 00:00 UTC. Autoplay off.'
+        : location.protocol === 'file:'
+          ? 'Jev needs the Worker: run docker compose up dev and open http://localhost:8787/chess/. Autoplay off.'
+          : `Jev failed (${e.message}). Autoplay off. Turn autoplay on to try again.`;
+      return;
     }
   }
   if (id !== gameId || !autoplay) return; // the game changed while we waited

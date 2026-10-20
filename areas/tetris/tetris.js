@@ -249,7 +249,7 @@ function reset() {
 // Goal: play on the edge. Keep the stack as high as possible without losing.
 // Code lists every reachable placement and enforces the hard height limit.
 // Jev judges the danger and picks a placement for "edge" mode and "safe" mode.
-// Code uses the danger judgment to choose the mode. Heuristic picks are the fallback.
+// Code uses the danger judgment to choose the mode. When a Jev call fails, the bot stops: no code pick replaces Jev.
 
 const EDGE_LIMIT = ROWS - 3;   // no column may pass this height: rows 1-3 stay free for spawn and moves
 const DANGER_THRESHOLD = 0.5;  // Jev danger above this switches the bot to safe mode
@@ -418,23 +418,23 @@ async function planMove() {
     const tooManyHoles = now.holes > HOLE_LIMIT;
     const mode = overLimit || tooManyHoles || (nearEdge && r.danger > DANGER_THRESHOLD) ? 'safe' : 'edge';
     const pick = r[mode];
-    target = union[pick.index] || (mode === 'safe' ? safeTop[0] : edgeTop[0]);
+    target = union[pick.index];
+    if (!target) throw new Error(`Jev named an unknown placement: ${pick.index}`);
     const why = overLimit ? ' (no move fits under the limit)' : tooManyHoles ? ` (${now.holes} holes)` : '';
     info = `Mode ${mode.toUpperCase()}${why}. `
       + `Danger ${r.danger.toFixed(2)}. Pick ${LABELS[union.indexOf(target)]} of ${union.length} `
       + `(confidence ${pick.confidence.toFixed(2)}). Stack ${target.maxHeight}/${EDGE_LIMIT}. `
       + `${Math.round(performance.now() - t0)} ms.`;
   } catch (e) {
-    if (e.dailyCap) { // past the daily cap no code pick replaces Jev: the bot stops (issue #5)
-      autoplay = false;
-      botInfo.textContent = 'Jev rests until 00:00 UTC. Autoplay off.';
-      return;
-    }
-    const now = boardStats(board);
-    target = now.maxHeight >= EDGE_LIMIT - DANGER_ZONE || now.holes > HOLE_LIMIT ? safeTop[0] : edgeTop[0];
-    info = location.protocol === 'file:'
-      ? 'Jev needs the Worker: run docker compose up dev and open http://localhost:8787/tetris/. Heuristic pick used.'
-      : `Jev failed (${e.message}). Heuristic pick used.`;
+    // No code pick replaces Jev: past the daily cap or after a failed call, the bot stops.
+    // Autoplay on is the retry.
+    autoplay = false;
+    botInfo.textContent = e.dailyCap
+      ? 'Jev rests until 00:00 UTC. Autoplay off.'
+      : location.protocol === 'file:'
+        ? 'Jev needs the Worker: run docker compose up dev and open http://localhost:8787/tetris/. Autoplay off.'
+        : `Jev failed (${e.message}). Autoplay off. Turn autoplay on to try again.`;
+    return;
   }
   if (id !== pieceId || !autoplay || over) return; // the piece changed while we waited
   botInfo.textContent = info;

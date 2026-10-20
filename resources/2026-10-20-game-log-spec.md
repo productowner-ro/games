@@ -31,7 +31,7 @@ No change to the format: the legend above `logLine` in `areas/chess/chess.js`. T
 `n src act piece rot col row cleared danger mode conf top3`
 
 - `n`: number of the line in the game.
-- `src`: `h` = a person, `j` = Jev, `f` = fallback heuristic (Jev failed).
+- `src`: `h` = a person, `j` = Jev. When a Jev call fails, the bot stops, so no line comes from a code pick.
 - `act`: `lock` = the piece lands, `hold` = the piece goes on hold.
 - `piece`: the type of the piece (`I`, `O`, `T`, `S`, `Z`, `J`, `L`).
 - `rot`, `col`, `row`: the rotation and the cell where the piece lands. Empty on a `hold` line.
