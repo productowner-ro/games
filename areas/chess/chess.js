@@ -243,6 +243,9 @@ function logLine(line) {
   GameLog.write(line);
 }
 
+// One PostHog event (areas/analytics.js, issue #13). The headless tests load no analytics.js.
+const track = (event, props) => { if (typeof Analytics !== 'undefined') Analytics.track(event, props); };
+
 function reset() {
   state = parseFEN(START_FEN);
   history = [];
@@ -260,7 +263,7 @@ function reset() {
 // `bot` holds the log columns for how a bot chose the move; a click move has none.
 function play(m, bot = null) {
   const move = san(state, m);
-  if (!logStarted) { logLine(`# game ${logId}`); logStarted = true; }
+  if (!logStarted) { logLine(`# game ${logId}`); logStarted = true; track('game_started'); }
   const b = bot || { src: 'h' };
   const no = state.turn === 'w' ? `${state.full}.` : `${state.full}...`; // the move number the UI shows
   logLine([no, move, b.src, b.plan, b.planP, b.drawnP, b.conf, b.adv, b.advBR, b.flags, b.top]);
@@ -268,7 +271,10 @@ function play(m, bot = null) {
   state = makeMove(state, m);
   selected = null; targets = []; pendingPromo = null;
   status = gameStatus(state, history);
-  if (status.over) logLine(`# end ${status.result} ${status.reason} after move ${no.replace(/\.+$/, '')}`);
+  if (status.over) {
+    logLine(`# end ${status.result} ${status.reason} after move ${no.replace(/\.+$/, '')}`);
+    track('game_over', { result: status.result, moves: history.length });
+  }
   msg.textContent = status.over ? `${status.result} - ${status.reason}` : '';
   updateSide();
   scheduleBot();
@@ -593,6 +599,8 @@ async function botMove() {
       // No code pick replaces Jev: past the daily cap or after a failed call, the bots stop.
       // Autoplay on is the retry.
       autoplay = false;
+      if (e.dailyCap) track('jev_rested');
+      else track('jev_failed', { error: e.message });
       box.textContent = '';
       document.getElementById('bot-status').textContent = e.dailyCap
         ? 'Jev rests until 00:00 UTC. Autoplay off.'
@@ -619,6 +627,7 @@ function scheduleBot() {
 
 function toggleAutoplay() {
   autoplay = !autoplay;
+  track('jev_toggled', { on: autoplay });
   gameId++;
   document.getElementById('bot-status').textContent = autoplay ? 'Autoplay on.' : 'Autoplay off.';
   scheduleBot();

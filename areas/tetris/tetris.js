@@ -102,9 +102,12 @@ function spawn() {
 // "# game <id>" starts a game. "# end <lines> <reason>" ends it: the lines cleared, and top-out or restart.
 // GameLog (areas/log.js) keeps the lines in page memory and pushes them to /api/log.
 function logLine(line) {
-  if (!logStarted) { GameLog.write(`# game ${logId}`); logStarted = true; }
+  if (!logStarted) { GameLog.write(`# game ${logId}`); logStarted = true; track('game_started'); }
   GameLog.write(line);
 }
+
+// One PostHog event (areas/analytics.js, issue #13). The headless test loads no analytics.js.
+const track = (event, props) => { if (typeof Analytics !== 'undefined') Analytics.track(event, props); };
 
 function logPiece(act, cleared) {
   const j = jevPick && jevPick.id === pieceId ? jevPick : null; // a piece that Jev placed
@@ -113,7 +116,9 @@ function logPiece(act, cleared) {
 }
 
 function logEnd(reason) {
-  if (logStarted) logLine(`# end ${lines} ${reason}`);
+  if (!logStarted) return;
+  logLine(`# end ${lines} ${reason}`);
+  track('game_over', { lines, score });
 }
 
 function lock() {
@@ -470,6 +475,8 @@ async function planMove() {
     // No code pick replaces Jev: past the daily cap or after a failed call, the bot stops.
     // Autoplay on is the retry.
     autoplay = false;
+    if (e.dailyCap) track('jev_rested');
+    else track('jev_failed', { error: e.message });
     botInfo.textContent = e.dailyCap
       ? 'Jev rests until 00:00 UTC. Autoplay off.'
       : location.protocol === 'file:'
@@ -508,6 +515,7 @@ function executePlacement(target, id) {
 
 function toggleAutoplay() {
   autoplay = !autoplay;
+  track('jev_toggled', { on: autoplay });
   botInfo.textContent = autoplay ? 'Autoplay on.' : 'Autoplay off.';
   dropTimer = 0;
   if (autoplay && !over) { pieceId++; planMove(); }

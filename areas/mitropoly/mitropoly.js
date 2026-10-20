@@ -1025,6 +1025,8 @@ if (typeof window !== 'undefined') (() => {
           } catch (e) {
             jevCapped = Boolean(e.dailyCap);
             jevStop = e.dailyCap ? 'Jev se odihnește până la 00:00 UTC.' : `Jev nu a răspuns (${e.message}).`;
+            if (e.dailyCap) track('jev_rested');
+            else track('jev_failed', { error: e.message });
           }
           thinking = false;
           if (jevStop) { news('Jev', jevStop); render(); break; }
@@ -1060,7 +1062,11 @@ if (typeof window !== 'undefined') (() => {
     const id = GameLog.start('mitropoly');
     logEnded = false;
     GameLog.write([`# game ${id}`, ...G.players.map((q, i) => `${q.name}:${q.jev ? 'j' : 'h'}:${q.jev ? STYLE_NAMES[i] : '-'}`)]);
+    track('game_started', { seats: G.players.length, jev_seats: G.players.filter(q => q.jev).length });
   }
+
+  // One PostHog event (areas/analytics.js, issue #13). The headless tests load no analytics.js.
+  const track = (event, props) => { if (typeof Analytics !== 'undefined') Analytics.track(event, props); };
 
   // The log entry of a button that a person clicks, before the action plays.
   function humanChoice(a, k) {
@@ -1084,6 +1090,7 @@ if (typeof window !== 'undefined') (() => {
     if (G.winner && !logEnded) {
       GameLog.write(`# end ${idxOf(G.winner)} bankruptcy`);
       logEnded = true;
+      track('game_over', { winner: idxOf(G.winner), turns: G.turn });
     }
   }
 
@@ -1222,7 +1229,10 @@ if (typeof window !== 'undefined') (() => {
     const b = e.target.closest('button[data-act]');
     if (b && !b.disabled) {
       if (b.dataset.act === 'restart') { $('#game').hidden = true; $('#setup').hidden = false; return; }
-      if (b.dataset.act === 'jevretry') { jevStop = ''; render(); runJev(); return; }
+      if (b.dataset.act === 'jevretry') {
+        track('jev_retry', { seat: decision()?.seat });
+        jevStop = ''; render(); runJev(); return;
+      }
       const k = +b.dataset.k;
       if (closesDeed.has(b.dataset.act)) selected = null;
       act(() => ACTIONS[b.dataset.act](k), humanChoice(b.dataset.act, k));
@@ -1257,6 +1267,10 @@ if (typeof window !== 'undefined') (() => {
       `<label class="switch"><input type="checkbox" id="j${i}"${prevJev[i] ? ' checked' : ''}> Jev</label></div>`).join('');
     document.querySelectorAll('#count button').forEach(b => b.setAttribute('aria-checked', String(+b.dataset.n === count)));
   }
+  // A Jev switch of the setup: the seat number is in the id, j0 to j3.
+  $('#names').addEventListener('change', e => {
+    if (/^j\d$/.test(e.target.id)) track('jev_toggled', { on: e.target.checked, seat: +e.target.id.slice(1) });
+  });
   $('#count').addEventListener('click', e => {
     const b = e.target.closest('button');
     if (b) { count = +b.dataset.n; renderNames(); }
