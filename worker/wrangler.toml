@@ -23,4 +23,5 @@ new_sqlite_classes = ["JevCount"]
 [[d1_databases]]
 binding = "LOG"
 database_name = "games-log"
+database_id = "3fd85b88-c849-466d-8012-82be08e00901"
 migrations_dir = "migrations"
