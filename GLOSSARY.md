@@ -19,3 +19,7 @@ _Avoid_: game engine, rules engine
 **Daily cap**:
 The highest number of Jev calls that the public site makes in one day. Past it, the Jev players stop until the next day.
 _Avoid_: budget, quota, rate limit
+
+**Semaphore**:
+The light on the page of a game that shows about how many Jev calls are left today: green, yellow or red.
+_Avoid_: quota bar, meter
