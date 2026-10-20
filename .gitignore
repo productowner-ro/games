@@ -2,3 +2,5 @@
 .claude/
 !areas/chess/games.log
 private/
+worker/node_modules/
+worker/.wrangler/

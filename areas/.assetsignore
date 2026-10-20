@@ -1,0 +1,7 @@
+# Files in areas/ that the site does not serve: the local servers, the tests and the notes.
+*/server.js
+*-test.js
+*/decision-count.js
+*/HANDOFF.md
+*/games.log
+.DS_Store

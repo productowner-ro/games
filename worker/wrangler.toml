@@ -1,0 +1,8 @@
+# One Worker serves the three games as static assets and runs /api/*.
+name = "games"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+[assets]
+directory = "../areas"
+run_worker_first = ["/api/*"]

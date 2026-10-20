@@ -1,0 +1,12 @@
+services:
+  dev:
+    build: { context: ., target: dev }
+    ports: ["8787:8787"]
+    volumes:
+      - .:/repo
+      - dev-node-modules:/repo/worker/node_modules
+    environment:
+      - TYPESAFE_API_KEY
+
+volumes:
+  dev-node-modules:
