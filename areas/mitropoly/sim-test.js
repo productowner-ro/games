@@ -1,4 +1,5 @@
-// Plays many random games headless with a stub DOM and checks the game invariants.
+// Plays many random games headless with a stub DOM and checks the game invariants:
+// 500 games of human seats with random clicks, and 500 games of Jev seats with random picks.
 // Run: node areas/mitropoly/sim-test.js
 const fs = require('fs');
 const path = require('path');
@@ -22,7 +23,7 @@ const document = {
 
 const ctx = { document, console, Math };
 vm.createContext(ctx);
-vm.runInContext(fs.readFileSync(path.join(__dirname, 'mitropoly.js'), 'utf8') + '\nthis.api = { newGame, roll, buy, skip, endTurn, payBribe, useCard, build, canBuild, toggleMortgage, get G() { return G; } };', ctx);
+vm.runInContext(fs.readFileSync(path.join(__dirname, 'mitropoly.js'), 'utf8') + '\nthis.api = { newGame, roll, buy, skip, endTurn, payBribe, useCard, build, canBuild, toggleMortgage, decision, choose, get G() { return G; } };', ctx);
 const api = ctx.api;
 
 let games = 0, winners = 0, turns = 0;
@@ -38,15 +39,43 @@ for (let g = 0; g < 500; g++) {
     else if (p.jail && p.money >= 50 && Math.random() < 0.3) api.payBribe();
     else api.roll();
 
-    for (const q of G.players) {
-      if (!q.out && q.money < 0) throw new Error(`game ${g}: ${q.name} alive with money ${q.money}`);
-    }
-    for (const [k, pr] of Object.entries(G.props)) {
-      if (G.players[pr.owner].out) throw new Error(`game ${g}: square ${k} owned by a bankrupt player`);
-      if (pr.houses < 0 || pr.houses > 5) throw new Error(`game ${g}: square ${k} has ${pr.houses} houses`);
-    }
+    check(g);
   }
   games++;
   if (api.G.winner) winners++;
 }
 console.log(`OK: ${games} games, ${winners} ended with a Patriarch, ${turns} turns, no invariant broke.`);
+
+// Jev seats: code plays one random option of each decision, where Jev would pick.
+let jevGames = 0, jevWinners = 0, picks = 0;
+const kinds = {};
+for (let g = 0; g < 500; g++) {
+  api.newGame(['A', 'B', 'C', 'D'], [true, true, true, true]);
+  for (let step = 0; step < 20000 && api.G.phase !== 'over'; step++) {
+    api.G.fx.length = 0;
+    const d = api.decision();
+    if (!d) throw new Error(`game ${g}: no decision in phase ${api.G.phase}`);
+    const keys = Object.keys(d.options);
+    if (!keys.length) throw new Error(`game ${g}: a ${d.kind} decision with no option`);
+    // In manage, end the turn half the time, so a game does not loop on builds and mortgages.
+    const key = d.kind === 'manage' && Math.random() < 0.5 ? 'end_turn' : keys[Math.floor(Math.random() * keys.length)];
+    if (keys.length > 1) { picks++; kinds[d.kind] = (kinds[d.kind] || 0) + 1; }
+    api.choose(key);
+    check(g);
+  }
+  jevGames++;
+  if (api.G.winner) jevWinners++;
+}
+console.log(`OK: ${jevGames} Jev games, ${jevWinners} ended with a Patriarch, ${picks} picks (${JSON.stringify(kinds)}), no invariant broke.`);
+
+function check(g) {
+  const G = api.G;
+  for (const q of G.players) {
+    const inDebt = G.debts.some(d => G.players[d.i] === q);
+    if (!q.out && q.money < 0 && !inDebt) throw new Error(`game ${g}: ${q.name} alive with money ${q.money}`);
+  }
+  for (const [k, pr] of Object.entries(G.props)) {
+    if (G.players[pr.owner].out) throw new Error(`game ${g}: square ${k} owned by a bankrupt player`);
+    if (pr.houses < 0 || pr.houses > 5) throw new Error(`game ${g}: square ${k} has ${pr.houses} houses`);
+  }
+}

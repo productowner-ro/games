@@ -150,6 +150,13 @@ function gain(p, n) {
 function pay(p, n, to) {
   log(`${p.name} plătește ${n} lei${to ? ' lui ' + to.name : ''}.`);
   p.money -= n;
+  if (p.money < 0 && p.jev) {
+    // A Jev seat chooses what to sell. The creditor waits for the full sum (issue #6).
+    G.debts.push({ i: idxOf(p), to: to ? idxOf(to) : -1, n });
+    settleDebts();
+    fxMoney(p);
+    return;
+  }
   if (p.money < 0) liquidate(p);
   if (p.money < 0) {
     if (to) to.money += n + p.money; // the creditor gets only what the debtor had
@@ -216,6 +223,63 @@ function bankrupt(p, to) {
     log(`${alive[0].name} devine Patriarh!`, 'turnline');
     fx({ t: 'news', tag: 'Patriarh', color: '#8a6a12', m: `${alive[0].name} devine Patriarh. Sfințirea e mâine, pe bani publici.` });
   }
+}
+
+// The debts of the Jev seats, in the order they arose. The first debtor in the list decides first.
+// A debtor whose money is back at 0 or more pays every creditor in full. A debtor with nothing
+// left to sell goes bankrupt: the creditors get the cash in order, and the property goes to
+// the creditor whose debt stays unpaid.
+function settleDebts() {
+  while (G.debts.length) {
+    const p = G.players[G.debts[0].i];
+    const mine = G.debts.filter(d => d.i === G.debts[0].i);
+    if (p.money < 0 && Object.keys(debtOptions(p)).length) return;
+    G.debts = G.debts.filter(d => !mine.includes(d));
+    let cash = p.money + mine.reduce((s, d) => s + d.n, 0);
+    let unpaid = null;
+    for (const d of mine) {
+      const to = d.to >= 0 ? G.players[d.to] : null;
+      const part = Math.min(cash, d.n);
+      cash -= part;
+      if (to) { to.money += part; fxMoney(to); }
+      if (part < d.n && !unpaid) unpaid = { to };
+    }
+    if (unpaid) bankrupt(p, unpaid.to);
+  }
+}
+
+function debtOptions(p) {
+  const options = {};
+  for (const k of owned(p).sort((a, b) => a - b)) {
+    const sq = BOARD[k], pr = G.props[k];
+    if (pr.houses > 0) {
+      options[`sell_${k}`] = { square: sq.name, cash_in: sq.house / 2, rent_lost: rentNow(k) - rentAfter(k, r => { r.houses--; }) };
+    } else if (!pr.mortgaged && !groupHasHouses(k)) {
+      options[`mortgage_${k}`] = { square: sq.name, cash_in: sq.price / 2, rent_lost: rentNow(k) };
+    }
+  }
+  return options;
+}
+
+// Plays one sale or mortgage of the first debtor, then pays the debts that are now covered.
+function chooseInDebt(key) {
+  const p = G.players[G.debts[0].i];
+  const [act, k] = key.split('_');
+  const sq = BOARD[+k], pr = G.props[+k];
+  if (!(key in debtOptions(p))) return;
+  if (act === 'sell') {
+    pr.houses--;
+    p.money += sq.house / 2;
+    log(`${p.name} vinde o clădire de pe ${sq.name}.`);
+  } else {
+    pr.mortgaged = true;
+    p.money += sq.price / 2;
+    log(`${p.name} ipotechează ${sq.name}.`);
+  }
+  fxMoney(p);
+  settleDebts();
+  if (G.winner) G.phase = 'over';
+  else if (cur().out) G.phase = 'end';
 }
 
 function rent(k) {
@@ -436,10 +500,134 @@ function toggleMortgage(k) {
   fxMoney(p);
 }
 
-function newGame(names) {
+// ======================= decisions of a Jev seat =======================
+// decision() lists the options of the seat that must act now; choose(key) plays one of them.
+// A human seat gets no decision: the page asks the human.
+function decision() {
+  if (G.phase === 'over') return null;
+  if (G.debts.length) {
+    const d = G.debts[0], debtor = G.players[d.i];
+    return {
+      kind: 'debt', seat: d.i, options: debtOptions(debtor),
+      situation: { debt_left: -debtor.money, owed_to: d.to >= 0 ? G.players[d.to].name : 'the state' },
+    };
+  }
+  const p = cur();
+  if (!p.jev) return null;
+  if (G.phase === 'buy') {
+    const k = p.pos, sq = BOARD[k];
+    return {
+      kind: 'buy', seat: G.cur,
+      options: {
+        buy: { square: sq.name, price: sq.price, money_after: p.money - sq.price, rent_today: rentIfBought(k), ...groupFacts(k) },
+        refuse: { money_after: p.money },
+      },
+    };
+  }
+  if ((G.phase === 'roll' || G.phase === 'again') && p.jail) {
+    const options = { roll_for_double: { note: 'a double frees you; on the third turn you pay 50 lei and move' } };
+    if (p.money >= 50) options.pay_bribe = { cost: 50, money_after: p.money - 50 };
+    if (p.getOut > 0) options.use_card = { cards_after: p.getOut - 1 };
+    const ahead = highestRentAhead(p);
+    return {
+      kind: 'jail', seat: G.cur, options,
+      situation: { money: p.money, cards: p.getOut, jail_turn: p.jailTurns + 1, highest_rent_ahead: ahead.rent, highest_rent_owner: ahead.owner },
+    };
+  }
+  if (G.phase === 'roll' || G.phase === 'again') return { kind: 'roll', seat: G.cur, options: { roll: {} } };
+  if (G.phase === 'end') return { kind: 'manage', seat: G.cur, options: { ...manageOptions(p), end_turn: { money: p.money } } };
+  return null;
+}
+
+const rentNow = k => (G.props[k].mortgaged ? 0 : rent(k));
+
+// The rent of square k after `change` to its property record. The record is restored.
+function rentAfter(k, change) {
+  const pr = G.props[k], saved = { ...pr };
+  change(pr);
+  const r = rentNow(k);
+  Object.assign(pr, saved);
+  return r;
+}
+
+function manageOptions(p) {
+  const options = {};
+  for (const k of owned(p).sort((a, b) => a - b)) {
+    const sq = BOARD[k], pr = G.props[k];
+    if (canBuild(k)) {
+      options[`build_${k}`] = { square: sq.name, cost: sq.house, money_after: p.money - sq.house, rent_before: rentNow(k), rent_after: rentAfter(k, r => { r.houses++; }) };
+    }
+    if (canMortgage(k) && !pr.mortgaged) {
+      options[`mortgage_${k}`] = { square: sq.name, cash_in: sq.price / 2, money_after: p.money + sq.price / 2, rent_before: rentNow(k), rent_after: 0 };
+    }
+    if (canMortgage(k) && pr.mortgaged) {
+      const cost = Math.ceil(sq.price * 0.55);
+      options[`buyback_${k}`] = { square: sq.name, cost, money_after: p.money - cost, rent_before: 0, rent_after: rentAfter(k, r => { r.mortgaged = false; }) };
+    }
+  }
+  return options;
+}
+
+// The highest rent among the 12 squares after the jail, where a roll from the jail can land.
+function highestRentAhead(p) {
+  let best = { rent: 0, owner: 'nobody' };
+  for (let k = 11; k <= 22; k++) {
+    const pr = G.props[k];
+    if (!pr || pr.owner === idxOf(p) || pr.mortgaged || G.players[pr.owner].out) continue;
+    const r = rent(k);
+    if (r > best.rent) best = { rent: r, owner: G.players[pr.owner].name };
+  }
+  return best;
+}
+
+// The squares that count together for the rent: a colour group, all rails, or both utilities.
+function setOf(k) {
+  const sq = BOARD[k];
+  return sq.group ? groupOf(sq.group) : BOARD.map((s, i) => (s.type === sq.type ? i : -1)).filter(i => i >= 0);
+}
+
+function rentIfBought(k) {
+  G.props[k] = { owner: G.cur, houses: 0, mortgaged: false };
+  const r = rent(k);
+  delete G.props[k];
+  return r;
+}
+
+// Who holds the set of square k, and what a buy of k does to the set.
+function groupFacts(k) {
+  const set = setOf(k);
+  const owned = { 'for sale': 0 };
+  G.players.forEach(q => { owned[q.name] = 0; });
+  set.forEach(i => { const pr = G.props[i]; owned[pr ? G.players[pr.owner].name : 'for sale']++; });
+  const others = set.filter(i => i !== k && G.props[i]).map(i => G.props[i].owner);
+  const rivals = [...new Set(others)];
+  const blocked = rivals.length === 1 && rivals[0] !== G.cur ? G.players[rivals[0]].name : 'nobody';
+  return {
+    group_squares_owned: owned,
+    completes_your_group: set.every(i => i === k || (G.props[i] && G.props[i].owner === G.cur)),
+    blocks_group_of: blocked,
+  };
+}
+
+function choose(key) {
+  if (G.debts.length) chooseInDebt(key);
+  else if (key === 'buy') buy();
+  else if (key === 'refuse') skip();
+  else if (key === 'roll' || key === 'roll_for_double') roll();
+  else if (key === 'pay_bribe') payBribe();
+  else if (key === 'use_card') useCard();
+  else if (key === 'end_turn') endTurn();
+  else {
+    const [act, k] = key.split('_');
+    if (act === 'build') build(+k);
+    else if (act === 'mortgage' || act === 'buyback') toggleMortgage(+k);
+  }
+}
+
+function newGame(names, jev = []) {
   G = {
-    players: names.map((name, i) => ({ name, color: PLAYER_COLORS[i], money: 1500, pos: 0, jail: false, jailTurns: 0, getOut: 0, out: false })),
-    props: {}, cur: 0, phase: 'roll', next: 'end', doubles: 0, dice: [1, 1], winner: null,
+    players: names.map((name, i) => ({ name, color: PLAYER_COLORS[i], money: 1500, pos: 0, jail: false, jailTurns: 0, getOut: 0, out: false, jev: Boolean(jev[i]) })),
+    props: {}, debts: [], cur: 0, phase: 'roll', next: 'end', doubles: 0, dice: [1, 1], winner: null,
     chance: shuffle(CHANCE), chest: shuffle(CHEST), log: [], fx: [],
   };
   log('Fiecare popă primește 1500 de lei din bugetul de stat.');
