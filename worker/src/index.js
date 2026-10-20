@@ -23,7 +23,7 @@ export class JevCount extends DurableObject {
         date, reserved + granted,
       );
     }
-    return { granted, left: cap - reserved - granted };
+    return { granted, left: Math.max(0, cap - reserved - granted) };
   }
 }
 

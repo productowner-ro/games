@@ -41,6 +41,21 @@ it('each answer carries X-Jev-Calls-Left from the last reservation', async () =>
   expect(past.headers.get('X-Jev-Calls-Left')).toBe('0');
 });
 
+it('a cap lowered below the calls reserved today leaves 0 calls, not fewer', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-11-07T09:00:00Z'));
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async () => Response.json({ answers: {} }));
+  for (let i = 0; i < 20; i++) await jev(); // 20 reserved and spent under the cap of 25
+
+  const res = await worker.fetch(
+    new Request('https://games.test/api/jev', { method: 'POST', body: '{}' }),
+    { ...env, DAILY_CAP: '10' },
+  );
+
+  expect(res.status).toBe(429);
+  expect(res.headers.get('X-Jev-Calls-Left')).toBe('0');
+});
+
 it('a failed call to TypeSafe returns 502 and still counts', async () => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date('2026-11-03T09:00:00Z'));
