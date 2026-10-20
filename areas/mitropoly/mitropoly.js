@@ -449,6 +449,7 @@ function useCard() {
 function endTurn() {
   if (G.winner) return;
   G.doubles = 0;
+  G.turn++;
   do { G.cur = (G.cur + 1) % G.players.length; } while (G.players[G.cur].out);
   G.phase = 'roll';
   log(`Tura lui ${cur().name}`, 'turnline');
@@ -624,10 +625,93 @@ function choose(key) {
   }
 }
 
+// ======================= the Jev player =======================
+// Each seat has a style, tied to its default name. A renamed seat keeps its style.
+const STYLES = [
+  'You are a greedy priest. You buy almost everything you land on and build chapels as soon as you can, even when cash runs low.',
+  'You are a cautious local baron. You keep a cash cushion of about 300 lei, buy mostly to complete or block groups, and avoid debt.',
+  'You are a patient abbess. You collect full groups, mortgage only in need, and build slowly but steadily on your best group.',
+  'You are an opportunist councillor. You buy cheap squares, mortgage freely to fund builds on a full group, and leave jail fast.',
+];
+
+// The draw favors the top options of Jev; at 1 it would follow the probabilities exactly (as in chess).
+const TEMPERATURE = 0.5;
+
+function sampleKey(probabilities) {
+  const weights = Object.entries(probabilities).map(([k, p]) => [k, Math.pow(p, 1 / TEMPERATURE)]);
+  let r = Math.random() * weights.reduce((a, [, w]) => a + w, 0);
+  for (const [k, w] of weights) if ((r -= w) <= 0) return k;
+  return weights[weights.length - 1][0];
+}
+
+const ASK = {
+  buy: 'You landed on a square that is for sale. Do you buy it?',
+  jail: 'You are in jail (Rahova). How do you try to leave?',
+  manage: 'Your move is over. Do you build, mortgage or buy back a square now, or end your turn? You will be asked again after each action.',
+  debt: 'You owe more than you have. Pick what to sell or mortgage to pay the debt. If nothing is left, you go bankrupt.',
+};
+
+function optionText(key, o) {
+  if (key === 'buy') return `Buy ${o.square} for ${o.price} lei.`;
+  if (key === 'refuse') return 'Refuse: the square stays with the state.';
+  if (key === 'roll_for_double') return 'Roll the dice and hope for a double.';
+  if (key === 'pay_bribe') return 'Pay the bribe of 50 lei and leave jail now.';
+  if (key === 'use_card') return 'Use your get-out-of-jail card.';
+  if (key === 'end_turn') return 'End your turn.';
+  const [act] = key.split('_');
+  const verb = { build: 'Build a chapel on', mortgage: 'Mortgage', buyback: 'Buy back', sell: 'Sell a chapel on' }[act];
+  return `${verb} ${o.square}.`;
+}
+
+// The state that Jev reads. Prompts are in English; square names stay in Romanian.
+function jevState(d) {
+  const me = G.players[d.seat];
+  return {
+    game: 'Mitropoly, a parody of Monopoly in Romania. Money is in lei. A chapel (paraclis) is a house; 5 chapels make a cathedral, a hotel.',
+    you_are: me.name,
+    your_style: STYLES[d.seat],
+    turn: G.turn,
+    players: G.players.map(q => ({
+      name: q.name, money: q.money, square: BOARD[q.pos].name, in_jail: q.jail, bankrupt: q.out,
+      property: owned(q).map(k => `${BOARD[k].name}${G.props[k].houses ? ` (${G.props[k].houses} chapels)` : ''}${G.props[k].mortgaged ? ' (mortgaged)' : ''}`),
+    })),
+    recent_log: G.log.slice(0, 10).map(e => e.m).reverse(),
+    situation: d.situation || {},
+    options: d.options,
+  };
+}
+
+// Asks Jev for one decision. Returns the key that the draw picked, and the answer of Jev.
+async function askJev(d) {
+  const criteria = {};
+  for (const [key, o] of Object.entries(d.options)) criteria[key] = `${optionText(key, o)} See \`options.${key}\`.`;
+  const answers = await Jev.call({
+    model: 'jev-latest',
+    state: jevState(d),
+    questions: { pick: { type: 'choice', instructions: `You play as \`you_are\`, in \`your_style\`. ${ASK[d.kind]}`, criteria } },
+  });
+  return { key: sampleKey(answers.pick.probabilities), answer: answers.pick };
+}
+
+// Plays the next decision of a Jev seat. One option: code takes it with no call. Returns null when
+// a human must act or the game is over.
+async function jevStep() {
+  const d = decision();
+  if (!d) return null;
+  const keys = Object.keys(d.options);
+  if (keys.length === 1) {
+    choose(keys[0]);
+    return { d, key: keys[0], answer: null };
+  }
+  const { key, answer } = await askJev(d);
+  choose(key);
+  return { d, key, answer };
+}
+
 function newGame(names, jev = []) {
   G = {
     players: names.map((name, i) => ({ name, color: PLAYER_COLORS[i], money: 1500, pos: 0, jail: false, jailTurns: 0, getOut: 0, out: false, jev: Boolean(jev[i]) })),
-    props: {}, debts: [], cur: 0, phase: 'roll', next: 'end', doubles: 0, dice: [1, 1], winner: null,
+    props: {}, debts: [], cur: 0, turn: 1, phase: 'roll', next: 'end', doubles: 0, dice: [1, 1], winner: null,
     chance: shuffle(CHANCE), chest: shuffle(CHEST), log: [], fx: [],
   };
   log('Fiecare popă primește 1500 de lei din bugetul de stat.');
