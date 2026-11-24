@@ -76,6 +76,9 @@ function tryRotate(dir) {
   }
 }
 
+const coarse = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
+const overText = () => (coarse ? 'GAME OVER - tap to restart' : 'GAME OVER - press R');
+
 function spawn() {
   piece = makePiece(queue.shift());
   queue.push(nextType());
@@ -83,7 +86,7 @@ function spawn() {
   pieceId++;
   if (collides(piece.m, piece.x, piece.y)) {
     over = true;
-    msg.textContent = 'GAME OVER - press R';
+    msg.textContent = overText();
     logEnd('top-out');
     return;
   }
@@ -127,7 +130,7 @@ function lock() {
   }));
   if (piece.m.some((row, r) => row.some(v => v) && piece.y + r < 0)) {
     over = true;
-    msg.textContent = 'GAME OVER - press R';
+    msg.textContent = overText();
     logPiece('lock', 0);
     logEnd('top-out');
     return;
@@ -521,27 +524,98 @@ function toggleAutoplay() {
   if (autoplay && !over) { pieceId++; planMove(); }
 }
 
-document.addEventListener('keydown', e => {
-  if (e.code === 'KeyR') { reset(); return; }
-  if (e.code === 'KeyA') { toggleAutoplay(); return; }
-  if (e.code === 'KeyP') {
+// The actions of a person: the keys and the touch controls both call act().
+function act(a) {
+  if (a === 'restart') { reset(); return; }
+  if (a === 'autoplay') { toggleAutoplay(); return; }
+  if (a === 'pause') {
     if (over) return;
     paused = !paused;
     msg.textContent = paused ? 'PAUSED' : '';
     return;
   }
   if (paused || over || autoplay) return;
-  switch (e.code) {
-    case 'ArrowLeft': move(-1, 0); break;
-    case 'ArrowRight': move(1, 0); break;
-    case 'ArrowDown': softDrop(); break;
-    case 'ArrowUp': case 'KeyX': tryRotate(1); break;
-    case 'KeyZ': tryRotate(-1); break;
-    case 'Space': hardDrop(); break;
-    case 'KeyC': case 'ShiftLeft': case 'ShiftRight': doHold(); break;
-    default: return;
+  switch (a) {
+    case 'left': move(-1, 0); break;
+    case 'right': move(1, 0); break;
+    case 'soft': softDrop(); break;
+    case 'cw': tryRotate(1); break;
+    case 'ccw': tryRotate(-1); break;
+    case 'hard': hardDrop(); break;
+    case 'hold': doHold(); break;
+  }
+}
+
+const KEYS = {
+  KeyR: 'restart', KeyA: 'autoplay', KeyP: 'pause', ArrowLeft: 'left', ArrowRight: 'right', ArrowDown: 'soft',
+  ArrowUp: 'cw', KeyX: 'cw', KeyZ: 'ccw', Space: 'hard', KeyC: 'hold', ShiftLeft: 'hold', ShiftRight: 'hold',
+};
+
+document.addEventListener('keydown', e => {
+  const a = KEYS[e.code];
+  if (!a) return;
+  act(a);
+  e.preventDefault();
+});
+
+// ---------- Touch ----------
+// Gestures on the play area (.wrap), outside the buttons: drag sideways to move one column per cell width,
+// drag down to soft drop one row per cell height, flick down to hard drop, flick up to hold, tap to rotate right.
+// A tap on a paused game resumes it; a tap after game over restarts it.
+const TAP_MS = 250, TAP_PX = 10, FLICK_SPEED = 1.0; // a flick: at least this many px per ms
+let touch = null;
+
+function cellPx() {
+  return document.getElementById('game').getBoundingClientRect().width / COLS;
+}
+
+document.addEventListener('touchstart', e => {
+  if (!e.target.closest || !e.target.closest('.wrap') || e.target.closest('button, a')) return;
+  const t = e.changedTouches[0];
+  touch = { x0: t.clientX, y0: t.clientY, x: t.clientX, y: t.clientY, t0: performance.now(), axis: null, moved: false };
+  e.preventDefault();
+}, { passive: false });
+
+document.addEventListener('touchmove', e => {
+  if (!touch) return;
+  const t = e.changedTouches[0];
+  const cell = cellPx();
+  const dx = t.clientX - touch.x, dy = t.clientY - touch.y;
+  if (!touch.axis && Math.hypot(t.clientX - touch.x0, t.clientY - touch.y0) > TAP_PX)
+    touch.axis = Math.abs(t.clientX - touch.x0) > Math.abs(t.clientY - touch.y0) ? 'x' : 'y';
+  if (touch.axis === 'x') {
+    for (let i = 0; i < Math.floor(Math.abs(dx) / cell); i++) { act(dx > 0 ? 'right' : 'left'); touch.moved = true; }
+    if (Math.abs(dx) >= cell) touch.x += Math.sign(dx) * Math.floor(Math.abs(dx) / cell) * cell;
+  } else if (touch.axis === 'y' && dy > 0) {
+    for (let i = 0; i < Math.floor(dy / cell); i++) { act('soft'); touch.moved = true; }
+    if (dy >= cell) touch.y += Math.floor(dy / cell) * cell;
   }
   e.preventDefault();
+}, { passive: false });
+
+document.addEventListener('touchend', e => {
+  if (!touch) return;
+  const t = e.changedTouches[0];
+  const ms = performance.now() - touch.t0;
+  const dx = t.clientX - touch.x0, dy = t.clientY - touch.y0;
+  const vy = dy / Math.max(ms, 1);
+  const s = touch;
+  touch = null;
+  if (!s.axis && ms < TAP_MS) {
+    if (over) act('restart');
+    else if (paused) act('pause');
+    else act('cw');
+  } else if (s.axis === 'y' && vy > FLICK_SPEED && dy > 2 * cellPx()) act('hard');
+  else if (s.axis === 'y' && vy < -FLICK_SPEED && dy < -2 * cellPx()) act('hold');
+  e.preventDefault();
+}, { passive: false });
+
+document.addEventListener('touchcancel', () => { touch = null; });
+
+// The touch buttons: <button data-act="..."> in index.html.
+document.addEventListener('click', e => {
+  const b = e.target.closest && e.target.closest('button[data-act]');
+  if (b) act(b.dataset.act);
 });
 
 reset();
