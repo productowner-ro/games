@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Tetris</title>
 <style>
   body { margin: 0; background: #111; color: #eee; font-family: system-ui, sans-serif;
@@ -20,13 +21,42 @@
   .semaphore.yellow::before { color: #f1c40f; }
   .semaphore.red::before { color: #e74c3c; }
   .semaphore.grey { color: #888; }
+  .touch, .touch-keys { display: none; }
+  /* A phone or tablet: gestures on the board, and buttons for the rest */
+  @media (pointer: coarse) {
+    html, body { overscroll-behavior: none; }
+    body { flex-direction: column; align-items: center; }
+    .wrap { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+    .desk-keys { display: none; }
+    .touch-keys { display: block; }
+    .touch { display: flex; gap: 8px; justify-content: center; margin-top: 10px; }
+    .touch button { flex: 1; max-width: 90px; min-height: 48px; font: inherit; font-size: 15px; color: #eee;
+                    background: #262626; border: 1px solid #444; border-radius: 8px; touch-action: manipulation; }
+    .touch button:active { background: #3a3a3a; }
+  }
+  /* A narrow screen: the board fits the screen, the side columns shrink */
+  @media (max-width: 640px) {
+    body { padding: 8px 8px 0; flex-direction: column; align-items: center; }
+    .wrap { gap: 6px; }
+    .side { width: 58px; }
+    .side canvas { width: 100%; height: auto; }
+    .side h3 { font-size: 10px; margin: 8px 0 3px; }
+    .stat { font-size: 15px; }
+    .keys, .semaphore { font-size: 10px; line-height: 1.35; margin-top: 4px; overflow-wrap: anywhere; }
+    #game { height: min(calc(100dvh - 90px), calc((100vw - 150px) * 2)); width: auto; }
+    #msg { width: 100%; font-size: 18px; }
+    .touch { width: 100%; }
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="side">
     <h3>Hold</h3><canvas id="hold" width="120" height="80"></canvas>
-    <div class="keys">
+    <div class="keys touch-keys">
+      Drag: move<br>Tap: rotate<br>Drag down: drop<br>Flick down: hard drop<br>Flick up: hold
+    </div>
+    <div class="keys desk-keys">
       ← → move<br>↓ soft drop<br>↑ / X rotate right<br>Z rotate left<br>Space hard drop<br>C / Shift hold<br>P pause<br>R restart<br>A autoplay (Jev)
     </div>
     <h3>Bot</h3><div class="keys" id="bot">Autoplay off.</div>
@@ -42,6 +72,13 @@
     <h3>Lines</h3><div class="stat" id="lines">0</div>
     <h3>Level</h3><div class="stat" id="level">1</div>
   </div>
+</div>
+<div class="touch">
+  <button type="button" data-act="ccw">⟲</button>
+  <button type="button" data-act="hold">Hold</button>
+  <button type="button" data-act="pause">Pause</button>
+  <button type="button" data-act="restart">Restart</button>
+  <button type="button" data-act="autoplay">Jev</button>
 </div>
 <script src="../jev.js"></script>
 <script src="../log.js"></script>
